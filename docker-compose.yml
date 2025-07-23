@@ -1,0 +1,100 @@
+version: "3.7"
+services:
+  #PHP Service
+  ci_cd:
+    build:
+      args:
+        user: test_app
+        uid: 1000
+      context: .
+      dockerfile: .docker/Dockerfile
+    image: ci_cd
+    restart: unless-stopped
+    working_dir: /var/www/
+    tty: true
+    environment:
+      SERVICE_NAME: app
+      SERVICE_TAGS: dev
+    volumes:
+      - ./:/var/www
+      - ./.docker/php/local.ini:/usr/local/etc/php/conf.d/local.ini
+    networks:
+      - ci_cd_network
+
+  #MySQL Service
+  ci_cd_db:
+    image: mysql:8.0
+    container_name: ci_cd_db
+    restart: unless-stopped
+    ports:
+      - "${DOCKER_DB_PORT}:3306"
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_USER: ${DB_USERNAME}
+      SERVICE_TAGS: dev
+      SERVICE_NAME: mysql
+    volumes:
+      - ci_cd_mysql_data:/var/lib/mysql
+    networks:
+      - ci_cd_network
+
+  #Nginx Service
+  ci_cd_nginx:
+    image: nginx:alpine
+    container_name: ci_cd_nginx
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "${DOCKER_APP_PORT}:80"
+      - "${DOCKER_APP_SSL_PORT}:443"
+    volumes:
+      - ./:/var/www
+      - ./.docker/nginx/conf.d/:/etc/nginx/conf.d/
+      - ./.docker/nginx/certs:/etc/nginx/certs
+    networks:
+      - ci_cd_network
+  # phpmyadmin service
+  ci_cd_phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    restart: unless-stopped
+    container_name: ci_cd_phpmyadmin
+    depends_on:
+      - ci_cd_db
+    ports:
+      - "${DOCKER_PHPMYADMIN_PORT}:80"
+    environment:
+      PMA_HOST: ci_cd_db
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      UPLOAD_LIMIT: 300M
+    networks:
+      - ci_cd_network
+
+  ci_cd_redis_cache:
+    image: redis:alpine
+    restart: always
+    container_name: ci_cd_redis_cache
+    ports:
+      - '${DOCKER_REDIS_PORT}:6379'
+    command: redis-server --save 20 1 --loglevel warning --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - ci_cd_cache:/data
+    networks:
+      - ci_cd_network
+
+#Docker Networks
+networks:
+  ci_cd_network:
+    driver: bridge
+
+#Volumes
+volumes:
+  ci_cd_mysql_data:
+  ci_cd_cache:
+  ci_cd_logs:
+    driver: local
+    driver_opts:
+      type: none
+      device: ./logs
+      o: bind
